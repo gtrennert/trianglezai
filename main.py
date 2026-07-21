@@ -6,12 +6,6 @@ Usage : python triangle.py H V
   H = nombre de points horizontaux de la grille
   V = nombre de points verticaux  de la grille
 
-Coins du rectangle :
-  A1 = (0, 0)       coin supérieur gauche
-  A2 = (H-1, 0)     coin supérieur droit
-  A3 = (0, V-1)     coin inférieur gauche
-  A4 = (H-1, V-1)   coin inférieur droit
-
 Règles :
   - S1 va de A1 vers P1 (unique point intérieur).
   - S2 va de P1 vers P2 (sur le bord, ≠ A1).
@@ -62,6 +56,16 @@ def partagent_bord(p1, p2, H, V):
 
 # ── Outils polygones ───────────────────────────────────────────────────
 
+def clean_poly(p):
+    """Supprime les doublons consécutifs dans un polygone."""
+    res = []
+    for pt in p:
+        if not res or res[-1] != pt:
+            res.append(pt)
+    if len(res) > 1 and res[0] == res[-1]:
+        res.pop()
+    return res
+
 def sur_segment(p, a, b):
     """True si le point p est sur le segment [a, b] (extrémités comprises)."""
     croix = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
@@ -100,31 +104,48 @@ def diviser_poly(poly, u, v):
     if p is None: return None
     p = inserer_point(p, v)
     if p is None: return None
+    
+    p = clean_poly(p) # Nettoyage pour éviter les bugs d'index
+    
     if u not in p or v not in p: return None
     iu, iv = p.index(u), p.index(v)
     if iu == iv: return None
+    
     if iu < iv:
-        return p[iu:iv + 1], p[iv:] + p[:iu + 1]
+        poly1 = p[iu:iv + 1]
+        poly2 = p[iv:] + p[:iu + 1]
     else:
-        return p[iu:] + p[:iv + 1], p[iv:iu + 1]
+        poly1 = p[iu:] + p[:iv + 1]
+        poly2 = p[iv:iu + 1]
+        
+    return [clean_poly(poly1), clean_poly(poly2)]
 
 # ── Découpage du rectangle après S1 + S2 ───────────────────────────────
 
 def decouper_apres_s2(A1, A2, A3, A4, P1, P2, H, V):
-    bords = bords_de(P2, H, V)
-    if 'haut' in bords:
-        cw, ccw = [], [A3, A4, A2]
-    elif 'droit' in bords:
-        cw, ccw = [A2], [A3, A4]
-    elif 'bas' in bords:
-        cw, ccw = [A2, A4], [A3]
-    elif 'gauche' in bords:
-        cw, ccw = [A2, A4, A3], []
-    else:
+    """Découpe le rectangle proprement en évitant les doublons de coins."""
+    rect = [A1, A2, A4, A3]
+    
+    # Insère P2 dans le rectangle
+    rect_avec_p2 = inserer_point(list(rect), P2)
+    if rect_avec_p2 is None:
         return None
-
-    poly1 = [A1] + cw + [P2, P1]
-    poly2 = [A1, P1, P2] + ccw[::-1]
+        
+    i1 = rect_avec_p2.index(A1)
+    i2 = rect_avec_p2.index(P2)
+        
+    # Détermine les deux chemins sur le bord entre A1 et P2
+    if i1 < i2:
+        bord1 = rect_avec_p2[i1:i2+1]
+        bord2 = rect_avec_p2[i2:] + rect_avec_p2[:i1+1]
+    else:
+        bord1 = rect_avec_p2[i1:] + rect_avec_p2[:i2+1]
+        bord2 = rect_avec_p2[i2:i1+1]
+        
+    # Ajoute P1 pour fermer les polygones
+    poly1 = clean_poly(bord1 + [P1])
+    poly2 = clean_poly(bord2 + [P1])
+    
     return [poly1, poly2]
 
 # ── Statistiques et décision ───────────────────────────────────────────
