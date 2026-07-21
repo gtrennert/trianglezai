@@ -23,6 +23,7 @@ Règles :
 """
 
 import sys
+from datetime import datetime
 
 X = 5  # nombre de triangles cible (fixé pour ce projet)
 
@@ -253,4 +254,21 @@ def main(H, V):
 if __name__ == "__main__":
     H = int(sys.argv[1]) if len(sys.argv) > 1 else 5
     V = int(sys.argv[2]) if len(sys.argv) > 2 else 5
-    main(H, V)
+    
+    # Génération du nom de fichier avec date et heure
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    nom_fichier = f"resultat{timestamp}.txt"
+    
+    # Affichage d'un message d'information dans la console
+    print(f"Calcul en cours... Les résultats seront écrits dans : {nom_fichier}")
+    
+    # Redirection de la sortie standard vers le fichier texte
+    with open(nom_fichier, 'w', encoding='utf-8') as f:
+        old_stdout = sys.stdout
+        sys.stdout = f
+        try:
+            main(H, V)
+        finally:
+            sys.stdout = old_stdout
+            
+    print(f"Terminé ! Les résultats ont été sauvegardés dans {nom_fichier}.")
