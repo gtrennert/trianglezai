@@ -260,8 +260,7 @@ def explorer(niveau, pt_courant, polys, definis, P1, H, V):
     for p_suiv in candidats:
         scissions = []
         for pi, poly in enumerate(polys):
-            if len(poly) == 3:
-                continue
+            # FIX : On ne saute plus les triangles ! Un triangle peut être divisé en 2 pour atteindre l'objectif de 5T
             if not sur_bord_poly(pt_courant, poly):
                 continue
             if not sur_bord_poly(p_suiv, poly):
