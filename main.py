@@ -57,13 +57,40 @@ def partagent_bord(p1, p2, H, V):
 # ── Outils polygones et intersections ──────────────────────────────────
 
 def clean_poly(p):
-    """Supprime les doublons consécutifs dans un polygone."""
+    """Supprime les doublons consécutifs et les points colinéaires (angles plats)."""
+    if not p: return []
+    
+    # 1. Supprime les doublons consécutifs
     res = []
     for pt in p:
         if not res or res[-1] != pt:
             res.append(pt)
     if len(res) > 1 and res[0] == res[-1]:
         res.pop()
+        
+    # 2. Supprime les points colinéaires (angle à 180°)
+    if len(res) < 3:
+        return res
+        
+    changed = True
+    while changed and len(res) >= 3:
+        changed = False
+        new_res = []
+        n = len(res)
+        for i in range(n):
+            prev = res[(i-1)%n]
+            curr = res[i]
+            nxt = res[(i+1)%n]
+            
+            # Produit en croix pour vérifier l'alignement
+            cross = (curr[0] - prev[0]) * (nxt[1] - curr[1]) - (curr[1] - prev[1]) * (nxt[0] - curr[0])
+            
+            if cross == 0:
+                # curr est aligné avec prev et nxt, on le supprime
+                changed = True
+            else:
+                new_res.append(curr)
+        res = new_res
     return res
 
 def sur_segment(p, a, b):
@@ -135,7 +162,7 @@ def diviser_poly(poly, u, v):
         if seg_intersect(u, v, a, b):
             return None
             
-    p = clean_poly(p)
+    p = clean_poly(p) # Nettoyage initial
     if u not in p or v not in p: return None
     iu, iv = p.index(u), p.index(v)
     if iu == iv: return None
@@ -147,6 +174,7 @@ def diviser_poly(poly, u, v):
         poly1 = p[iu:] + p[:iv + 1]
         poly2 = p[iv:iu + 1]
         
+    # Deuxième nettoyage pour éliminer les angles plats créés par la division
     poly1 = clean_poly(poly1)
     poly2 = clean_poly(poly2)
     
