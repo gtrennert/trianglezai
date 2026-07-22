@@ -54,7 +54,7 @@ def partagent_bord(p1, p2, H, V):
     """True si p1 et p2 sont sur un bord commun du rectangle."""
     return bool(set(bords_de(p1, H, V)) & set(bords_de(p2, H, V)))
 
-# ── Outils polygones ───────────────────────────────────────────────────
+# ── Outils polygones et intersections ──────────────────────────────────
 
 def clean_poly(p):
     """Supprime les doublons consécutifs dans un polygone."""
@@ -87,6 +87,21 @@ def sur_bord_poly(pt, poly):
             return True
     return False
 
+def orientation(p, q, r):
+    val = (q[1] - p[1]) * (r[0] - q[0]) - (q[0] - p[0]) * (r[1] - q[1])
+    if val == 0: return 0
+    return 1 if val > 0 else 2
+
+def seg_intersect(p1, q1, p2, q2):
+    """Vrai si les segments [p1,q1] et [p2,q2] se croisent strictement."""
+    o1 = orientation(p1, q1, p2)
+    o2 = orientation(p1, q1, q2)
+    o3 = orientation(p2, q2, p1)
+    o4 = orientation(p2, q2, q1)
+    if o1 != o2 and o3 != o4:
+        return True
+    return False
+
 def inserer_point(poly, pt):
     """Insère pt dans la liste des sommets s'il est sur une arête."""
     if pt in poly:
@@ -99,14 +114,28 @@ def inserer_point(poly, pt):
     return None
 
 def diviser_poly(poly, u, v):
-    """Divise poly le long du segment u-v."""
+    """Divise poly le long du segment u-v en vérifiant la validité topologique."""
     p = inserer_point(list(poly), u)
     if p is None: return None
     p = inserer_point(p, v)
     if p is None: return None
     
-    p = clean_poly(p) # Nettoyage pour éviter les bugs d'index
-    
+    # 1. Empêcher le segment de passer exactement par un autre sommet
+    for w in p:
+        if w != u and w != v and sur_segment(w, u, v):
+            return None
+            
+    # 2. Empêcher le segment de croiser les arêtes existantes du polygone
+    n = len(p)
+    for i in range(n):
+        a = p[i]
+        b = p[(i+1)%n]
+        if u in (a, b) or v in (a, b):
+            continue
+        if seg_intersect(u, v, a, b):
+            return None
+            
+    p = clean_poly(p)
     if u not in p or v not in p: return None
     iu, iv = p.index(u), p.index(v)
     if iu == iv: return None
@@ -118,15 +147,20 @@ def diviser_poly(poly, u, v):
         poly1 = p[iu:] + p[:iv + 1]
         poly2 = p[iv:iu + 1]
         
-    return [clean_poly(poly1), clean_poly(poly2)]
+    poly1 = clean_poly(poly1)
+    poly2 = clean_poly(poly2)
+    
+    # 3. Empêcher la création de formes dégénérées (lignes plates à 2 sommets)
+    if len(poly1) < 3 or len(poly2) < 3:
+        return None
+        
+    return [poly1, poly2]
 
 # ── Découpage du rectangle après S1 + S2 ───────────────────────────────
 
 def decouper_apres_s2(A1, A2, A3, A4, P1, P2, H, V):
     """Découpe le rectangle proprement en évitant les doublons de coins."""
     rect = [A1, A2, A4, A3]
-    
-    # Insère P2 dans le rectangle
     rect_avec_p2 = inserer_point(list(rect), P2)
     if rect_avec_p2 is None:
         return None
@@ -134,7 +168,6 @@ def decouper_apres_s2(A1, A2, A3, A4, P1, P2, H, V):
     i1 = rect_avec_p2.index(A1)
     i2 = rect_avec_p2.index(P2)
         
-    # Détermine les deux chemins sur le bord entre A1 et P2
     if i1 < i2:
         bord1 = rect_avec_p2[i1:i2+1]
         bord2 = rect_avec_p2[i2:] + rect_avec_p2[:i1+1]
@@ -142,10 +175,11 @@ def decouper_apres_s2(A1, A2, A3, A4, P1, P2, H, V):
         bord1 = rect_avec_p2[i1:] + rect_avec_p2[:i2+1]
         bord2 = rect_avec_p2[i2:i1+1]
         
-    # Ajoute P1 pour fermer les polygones
     poly1 = clean_poly(bord1 + [P1])
     poly2 = clean_poly(bord2 + [P1])
     
+    if len(poly1) < 3 or len(poly2) < 3:
+        return None
     return [poly1, poly2]
 
 # ── Statistiques et décision ───────────────────────────────────────────
@@ -191,8 +225,6 @@ def explorer(niveau, pt_courant, polys, definis, P1, H, V):
     for p_suiv in bord_points(H, V):
         if p_suiv in definis:
             continue
-        # Un point du bord ne peut pas être sur le même bord que le point courant
-        # (Si le point courant est P1, il n'a pas de bord, donc tout est permis)
         if partagent_bord(pt_courant, p_suiv, H, V):
             continue
         candidats.append(p_suiv)
