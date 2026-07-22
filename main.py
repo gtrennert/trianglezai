@@ -56,42 +56,31 @@ def partagent_bord(p1, p2, H, V):
 
 # ── Outils polygones et intersections ──────────────────────────────────
 
-def clean_poly(p):
-    """Supprime les doublons consécutifs et les points colinéaires (angles plats)."""
+def remove_duplicates(p):
+    """Supprime uniquement les doublons consécutifs (garde les points alignés)."""
     if not p: return []
-    
-    # 1. Supprime les doublons consécutifs
     res = []
     for pt in p:
         if not res or res[-1] != pt:
             res.append(pt)
     if len(res) > 1 and res[0] == res[-1]:
         res.pop()
-        
-    # 2. Supprime les points colinéaires (angle à 180°)
-    if len(res) < 3:
-        return res
-        
-    changed = True
-    while changed and len(res) >= 3:
-        changed = False
-        new_res = []
-        n = len(res)
-        for i in range(n):
-            prev = res[(i-1)%n]
-            curr = res[i]
-            nxt = res[(i+1)%n]
-            
-            # Produit en croix pour vérifier l'alignement
-            cross = (curr[0] - prev[0]) * (nxt[1] - curr[1]) - (curr[1] - prev[1]) * (nxt[0] - curr[0])
-            
-            if cross == 0:
-                # curr est aligné avec prev et nxt, on le supprime
-                changed = True
-            else:
-                new_res.append(curr)
-        res = new_res
     return res
+
+def true_vertex_count(poly):
+    """Compte le nombre de sommets ayant un angle non plat (vrais coins)."""
+    if len(poly) < 3: return 0
+    count = 0
+    n = len(poly)
+    for i in range(n):
+        prev = poly[(i-1)%n]
+        curr = poly[i]
+        nxt = poly[(i+1)%n]
+        # Produit en croix pour vérifier l'alignement
+        cross = (curr[0] - prev[0]) * (nxt[1] - curr[1]) - (curr[1] - prev[1]) * (nxt[0] - curr[0])
+        if cross != 0:
+            count += 1
+    return count
 
 def sur_segment(p, a, b):
     """True si le point p est sur le segment [a, b] (extrémités comprises)."""
@@ -142,9 +131,9 @@ def inserer_point(poly, pt):
 
 def diviser_poly(poly, u, v):
     """Divise poly le long du segment u-v en vérifiant la validité topologique."""
-    p = inserer_point(list(poly), u)
+    p = remove_duplicates(inserer_point(list(poly), u))
     if p is None: return None
-    p = inserer_point(p, v)
+    p = remove_duplicates(inserer_point(p, v))
     if p is None: return None
     
     # 1. Empêcher le segment de passer exactement par un autre sommet
@@ -162,7 +151,6 @@ def diviser_poly(poly, u, v):
         if seg_intersect(u, v, a, b):
             return None
             
-    p = clean_poly(p) # Nettoyage initial
     if u not in p or v not in p: return None
     iu, iv = p.index(u), p.index(v)
     if iu == iv: return None
@@ -174,12 +162,11 @@ def diviser_poly(poly, u, v):
         poly1 = p[iu:] + p[:iv + 1]
         poly2 = p[iv:iu + 1]
         
-    # Deuxième nettoyage pour éliminer les angles plats créés par la division
-    poly1 = clean_poly(poly1)
-    poly2 = clean_poly(poly2)
+    poly1 = remove_duplicates(poly1)
+    poly2 = remove_duplicates(poly2)
     
     # 3. Empêcher la création de formes dégénérées (lignes plates à 2 sommets)
-    if len(poly1) < 3 or len(poly2) < 3:
+    if true_vertex_count(poly1) < 3 or true_vertex_count(poly2) < 3:
         return None
         
     return [poly1, poly2]
@@ -189,7 +176,7 @@ def diviser_poly(poly, u, v):
 def decouper_apres_s2(A1, A2, A3, A4, P1, P2, H, V):
     """Découpe le rectangle proprement en évitant les doublons de coins."""
     rect = [A1, A2, A4, A3]
-    rect_avec_p2 = inserer_point(list(rect), P2)
+    rect_avec_p2 = remove_duplicates(inserer_point(list(rect), P2))
     if rect_avec_p2 is None:
         return None
         
@@ -203,18 +190,25 @@ def decouper_apres_s2(A1, A2, A3, A4, P1, P2, H, V):
         bord1 = rect_avec_p2[i1:] + rect_avec_p2[:i2+1]
         bord2 = rect_avec_p2[i2:i1+1]
         
-    poly1 = clean_poly(bord1 + [P1])
-    poly2 = clean_poly(bord2 + [P1])
+    poly1 = remove_duplicates(bord1 + [P1])
+    poly2 = remove_duplicates(bord2 + [P1])
     
-    if len(poly1) < 3 or len(poly2) < 3:
+    if true_vertex_count(poly1) < 3 or true_vertex_count(poly2) < 3:
         return None
     return [poly1, poly2]
 
 # ── Statistiques et décision ───────────────────────────────────────────
 
 def calculer_stats(polys):
-    nT = sum(1 for p in polys if len(p) == 3)
-    autres = sorted(len(p) for p in polys if len(p) != 3)
+    nT = 0
+    autres = []
+    for p in polys:
+        v_count = true_vertex_count(p)
+        if v_count == 3:
+            nT += 1
+        else:
+            autres.append(v_count)
+    autres.sort()
     return nT, autres
 
 def tmin(nT, autres):
@@ -245,11 +239,9 @@ def explorer(niveau, pt_courant, polys, definis, P1, H, V):
         return
 
     candidats = []
-    # On peut toujours relier au point intérieur P1, sauf si on y est déjà
     if pt_courant != P1:
         candidats.append(P1)
         
-    # On peut relier à un point du bord
     for p_suiv in bord_points(H, V):
         if p_suiv in definis:
             continue
@@ -260,7 +252,6 @@ def explorer(niveau, pt_courant, polys, definis, P1, H, V):
     for p_suiv in candidats:
         scissions = []
         for pi, poly in enumerate(polys):
-            # FIX : On ne saute plus les triangles ! Un triangle peut être divisé en 2 pour atteindre l'objectif de 5T
             if not sur_bord_poly(pt_courant, poly):
                 continue
             if not sur_bord_poly(p_suiv, poly):
@@ -343,14 +334,11 @@ if __name__ == "__main__":
     H = int(sys.argv[1]) if len(sys.argv) > 1 else 5
     V = int(sys.argv[2]) if len(sys.argv) > 2 else 5
     
-    # Génération du nom de fichier avec date et heure
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     nom_fichier = f"resultat{timestamp}.txt"
     
-    # Affichage d'un message d'information dans la console
     print(f"Calcul en cours... Les résultats seront écrits dans : {nom_fichier}")
     
-    # Redirection de la sortie standard vers le fichier texte
     with open(nom_fichier, 'w', encoding='utf-8') as f:
         old_stdout = sys.stdout
         sys.stdout = f
