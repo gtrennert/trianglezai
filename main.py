@@ -9,8 +9,8 @@ Usage : python triangle.py H V
 Règles :
   - S1 va de A1 vers P1 (unique point intérieur).
   - S2 va de P1 vers P2 (sur le bord, ≠ A1).
-  - S_n (n ≥ 3) va de P_{n-1} vers P_n (sur le bord ou P1,
-    ≠ points déjà définis, pas sur le même bord que P_{n-1}).
+  - S_n (n ≥ 3) relie n'importe quelle paire de points valides sur le bord
+    d'un polygone non-triangle (sommets existants ou points sur les bords).
   - Une forme Fx (x sommets) produit au minimum x-2 triangles.
   - Tmin = triangles actuels + Σ(x-2 pour chaque Fx).
   - GO si Tmin ≤ 5 ; STOP si Tmin > 5 ; SUCCESS si 5T exactement.
@@ -76,7 +76,6 @@ def true_vertex_count(poly):
         prev = poly[(i-1)%n]
         curr = poly[i]
         nxt = poly[(i+1)%n]
-        # Produit en croix pour vérifier l'alignement
         cross = (curr[0] - prev[0]) * (nxt[1] - curr[1]) - (curr[1] - prev[1]) * (nxt[0] - curr[0])
         if cross != 0:
             count += 1
@@ -93,27 +92,16 @@ def sur_segment(p, a, b):
     long2 = (b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2
     return prod <= long2
 
-def sur_bord_poly(pt, poly):
-    """True si pt est sur le bord du polygone (sommet ou sur une arête)."""
-    if pt in poly:
-        return True
-    n = len(poly)
-    for i in range(n):
-        if sur_segment(pt, poly[i], poly[(i + 1) % n]):
-            return True
-    return False
-
-def orientation(p, q, r):
-    val = (q[1] - p[1]) * (r[0] - q[0]) - (q[0] - p[0]) * (r[1] - q[1])
-    if val == 0: return 0
-    return 1 if val > 0 else 2
-
 def seg_intersect(p1, q1, p2, q2):
     """Vrai si les segments [p1,q1] et [p2,q2] se croisent strictement."""
-    o1 = orientation(p1, q1, p2)
-    o2 = orientation(p1, q1, q2)
-    o3 = orientation(p2, q2, p1)
-    o4 = orientation(p2, q2, q1)
+    def o(p, q, r):
+        val = (q[1] - p[1]) * (r[0] - q[0]) - (q[0] - p[0]) * (r[1] - q[1])
+        if val == 0: return 0
+        return 1 if val > 0 else 2
+    o1 = o(p1, q1, p2)
+    o2 = o(p1, q1, q2)
+    o3 = o(p2, q2, p1)
+    o4 = o(p2, q2, q1)
     if o1 != o2 and o3 != o4:
         return True
     return False
@@ -146,7 +134,8 @@ def diviser_poly(poly, u, v):
     for i in range(n):
         a = p[i]
         b = p[(i+1)%n]
-        if u in (a, b) or v in (a, b):
+        # CORRECTION ICI : on utilise sur_segment au lieu de 'in'
+        if sur_segment(u, a, b) or sur_segment(v, a, b):
             continue
         if seg_intersect(u, v, a, b):
             return None
@@ -165,16 +154,59 @@ def diviser_poly(poly, u, v):
     poly1 = remove_duplicates(poly1)
     poly2 = remove_duplicates(poly2)
     
-    # 3. Empêcher la création de formes dégénérées (lignes plates à 2 sommets)
     if true_vertex_count(poly1) < 3 or true_vertex_count(poly2) < 3:
         return None
         
     return [poly1, poly2]
 
+def get_candidates(poly, H, V):
+    """Trouve tous les points potentiels pour tracer un segment sur le bord de poly."""
+    cands = set(poly)
+    n = len(poly)
+    for i in range(n):
+        a = poly[i]
+        b = poly[(i+1)%n]
+        if bords_de(a, H, V) and bords_de(b, H, V):
+            if partagent_bord(a, b, H, V):
+                x1, y1 = a
+                x2, y2 = b
+                if x1 == x2:
+                    for y in range(min(y1, y2), max(y1, y2) + 1):
+                        cands.add((x1, y))
+                elif y1 == y2:
+                    for x in range(min(x1, x2), max(x1, x2) + 1):
+                        cands.add((x, y1))
+    return list(cands)
+
+def same_edge(poly, u, v):
+    """Vrai si u et v sont sur la même arête du polygone."""
+    n = len(poly)
+    for i in range(n):
+        a = poly[i]
+        b = poly[(i+1)%n]
+        if sur_segment(u, a, b) and sur_segment(v, a, b):
+            return True
+    return False
+
+def valid_diagonal(poly, u, v):
+    """Vérifie si le segment [u,v] est une diagonale valide de poly."""
+    for w in poly:
+        if w != u and w != v and sur_segment(w, u, v):
+            return False
+    n = len(poly)
+    for i in range(n):
+        a = poly[i]
+        b = poly[(i+1)%n]
+        # CORRECTION ICI : on utilise sur_segment au lieu de 'in'
+        if sur_segment(u, a, b) or sur_segment(v, a, b):
+            continue
+        if seg_intersect(u, v, a, b):
+            return False
+    return True
+
 # ── Découpage du rectangle après S1 + S2 ───────────────────────────────
 
 def decouper_apres_s2(A1, A2, A3, A4, P1, P2, H, V):
-    """Découpe le rectangle proprement en évitant les doublons de coins."""
     rect = [A1, A2, A4, A3]
     rect_avec_p2 = remove_duplicates(inserer_point(list(rect), P2))
     if rect_avec_p2 is None:
@@ -234,53 +266,42 @@ def fmt_pt(p):
 
 # ── Exploration récursive ─────────────────────────────────────────────
 
-def explorer(niveau, pt_courant, polys, definis, P1, H, V):
+def explorer(niveau, polys, H, V):
     if niveau > 4:
         return
 
-    candidats = []
-    if pt_courant != P1:
-        candidats.append(P1)
-        
-    for p_suiv in bord_points(H, V):
-        if p_suiv in definis:
-            continue
-        if partagent_bord(pt_courant, p_suiv, H, V):
-            continue
-        candidats.append(p_suiv)
+    for pi, poly in enumerate(polys):
+        cands = get_candidates(poly, H, V)
+        for i in range(len(cands)):
+            for j in range(i + 1, len(cands)):
+                u = cands[i]
+                v = cands[j]
+                
+                if same_edge(poly, u, v):
+                    continue
+                if not valid_diagonal(poly, u, v):
+                    continue
+                
+                res = diviser_poly(poly, u, v)
+                if res is None:
+                    continue
+                    
+                p1, p2 = res
+                nv_polys = polys[:pi] + [p1, p2] + polys[pi + 1:]
+                nT, autres = calculer_stats(nv_polys)
+                t = tmin(nT, autres)
+                dec = decider(nT, autres)
+                stats = fmt_stats(nT, autres)
+                
+                indent = "\t" * niveau
+                sn = niveau + 1
+                
+                print(f"{indent}P{sn}{fmt_pt(v)} => "
+                      f"S{sn}( {fmt_pt(u)},{fmt_pt(v)} ) : "
+                      f"{stats} = {t}Tmin => {dec}")
 
-    for p_suiv in candidats:
-        scissions = []
-        for pi, poly in enumerate(polys):
-            if not sur_bord_poly(pt_courant, poly):
-                continue
-            if not sur_bord_poly(p_suiv, poly):
-                continue
-            res = diviser_poly(poly, pt_courant, p_suiv)
-            if res is not None:
-                scissions.append((pi, res))
-
-        if not scissions:
-            continue
-
-        for pi, (p1, p2) in scissions:
-            nv_polys = polys[:pi] + [p1, p2] + polys[pi + 1:]
-            nT, autres = calculer_stats(nv_polys)
-            t = tmin(nT, autres)
-            dec = decider(nT, autres)
-            stats = fmt_stats(nT, autres)
-
-            indent = "\t" * niveau
-            sn = niveau + 1
-            pn = niveau + 1
-
-            print(f"{indent}P{pn}{fmt_pt(p_suiv)} => "
-                  f"S{sn}( {fmt_pt(pt_courant)},{fmt_pt(p_suiv)} ) : "
-                  f"{stats} = {t}Tmin => {dec}")
-
-            if dec == 'GO':
-                explorer(niveau + 1, p_suiv, nv_polys,
-                         definis | {p_suiv}, P1, H, V)
+                if dec == 'GO':
+                    explorer(niveau + 1, nv_polys, H, V)
 
 # ── Programme principal ────────────────────────────────────────────────
 
@@ -308,10 +329,9 @@ def main(H, V):
         print(f"P1{fmt_pt(p1)}")
 
         bord = bord_points(H, V)
-        definis = {A1, p1}
 
         for p2 in bord:
-            if p2 in definis:
+            if p2 == A1:
                 continue
 
             polys = decouper_apres_s2(A1, A2, A3, A4, p1, p2, H, V)
@@ -328,7 +348,7 @@ def main(H, V):
                   f"{stats} = {t}Tmin => {dec}")
 
             if dec == 'GO':
-                explorer(2, p2, polys, definis | {p2}, p1, H, V)
+                explorer(2, polys, H, V)
 
 if __name__ == "__main__":
     H = int(sys.argv[1]) if len(sys.argv) > 1 else 5
