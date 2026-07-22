@@ -9,7 +9,7 @@ Usage : python triangle.py H V
 Règles :
   - S1 va de A1 vers P1 (unique point intérieur).
   - S2 va de P1 vers P2 (sur le bord, ≠ A1).
-  - S_n (n ≥ 3) va de P_{n-1} vers P_n (sur le bord,
+  - S_n (n ≥ 3) va de P_{n-1} vers P_n (sur le bord ou P1,
     ≠ points déjà définis, pas sur le même bord que P_{n-1}).
   - Une forme Fx (x sommets) produit au minimum x-2 triangles.
   - Tmin = triangles actuels + Σ(x-2 pour chaque Fx).
@@ -178,18 +178,26 @@ def fmt_pt(p):
 
 # ── Exploration récursive ─────────────────────────────────────────────
 
-def explorer(niveau, pt_courant, polys, definis, H, V):
+def explorer(niveau, pt_courant, polys, definis, P1, H, V):
     if niveau > 4:
         return
 
-    bord = bord_points(H, V)
-
-    for p_suiv in bord:
+    candidats = []
+    # On peut toujours relier au point intérieur P1, sauf si on y est déjà
+    if pt_courant != P1:
+        candidats.append(P1)
+        
+    # On peut relier à un point du bord
+    for p_suiv in bord_points(H, V):
         if p_suiv in definis:
             continue
+        # Un point du bord ne peut pas être sur le même bord que le point courant
+        # (Si le point courant est P1, il n'a pas de bord, donc tout est permis)
         if partagent_bord(pt_courant, p_suiv, H, V):
             continue
+        candidats.append(p_suiv)
 
+    for p_suiv in candidats:
         scissions = []
         for pi, poly in enumerate(polys):
             if len(poly) == 3:
@@ -222,7 +230,7 @@ def explorer(niveau, pt_courant, polys, definis, H, V):
 
             if dec == 'GO':
                 explorer(niveau + 1, p_suiv, nv_polys,
-                         definis | {p_suiv}, H, V)
+                         definis | {p_suiv}, P1, H, V)
 
 # ── Programme principal ────────────────────────────────────────────────
 
@@ -270,7 +278,7 @@ def main(H, V):
                   f"{stats} = {t}Tmin => {dec}")
 
             if dec == 'GO':
-                explorer(2, p2, polys, definis | {p2}, H, V)
+                explorer(2, p2, polys, definis | {p2}, p1, H, V)
 
 if __name__ == "__main__":
     H = int(sys.argv[1]) if len(sys.argv) > 1 else 5
