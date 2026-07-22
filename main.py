@@ -117,25 +117,39 @@ def inserer_point(poly, pt):
             return poly[:i + 1] + [pt] + poly[i + 1:]
     return None
 
-def diviser_poly(poly, u, v):
+def diviser_poly(poly, u, v, all_polys):
     p = remove_duplicates(inserer_point(list(poly), u))
     if p is None: return None
     p = remove_duplicates(inserer_point(p, v))
     if p is None: return None
     
+    # Empêcher le segment de passer exactement par un autre sommet du polygone courant
     for w in p:
         if w != u and w != v and sur_segment(w, u, v):
             return None
             
-    n = len(p)
-    for i in range(n):
-        a = p[i]
-        b = p[(i+1)%n]
-        if sur_segment(u, a, b) or sur_segment(v, a, b):
-            continue
-        if seg_intersect(u, v, a, b):
-            return None
+    # Vérifier les intersections et T-jonctions avec TOUS les polygones existants
+    for other_poly in all_polys:
+        n = len(other_poly)
+        for i in range(n):
+            a = other_poly[i]
+            b = other_poly[(i+1)%n]
             
+            # 1. T-jonction: u ou v atterrit strictement au milieu d'une arête d'un AUTRE polygone
+            if other_poly is not poly:
+                if sur_segment(u, a, b) and u != a and u != b:
+                    return None
+                if sur_segment(v, a, b) and v != a and v != b:
+                    return None
+                
+            # 2. Si u ou v touche l'arête à un sommet, ce n'est pas une intersection croisée
+            if sur_segment(u, a, b) or sur_segment(v, a, b):
+                continue
+                
+            # 3. Intersection croisée stricte
+            if seg_intersect(u, v, a, b):
+                return None
+                
     if u not in p or v not in p: return None
     iu, iv = p.index(u), p.index(v)
     if iu == iv: return None
@@ -182,18 +196,28 @@ def same_edge(poly, u, v):
             return True
     return False
 
-def valid_diagonal(poly, u, v):
+def valid_diagonal(poly, u, v, all_polys):
     for w in poly:
         if w != u and w != v and sur_segment(w, u, v):
             return False
-    n = len(poly)
-    for i in range(n):
-        a = poly[i]
-        b = poly[(i+1)%n]
-        if sur_segment(u, a, b) or sur_segment(v, a, b):
-            continue
-        if seg_intersect(u, v, a, b):
-            return False
+            
+    for other_poly in all_polys:
+        n = len(other_poly)
+        for i in range(n):
+            a = other_poly[i]
+            b = other_poly[(i+1)%n]
+            
+            if other_poly is not poly:
+                if sur_segment(u, a, b) and u != a and u != b:
+                    return False
+                if sur_segment(v, a, b) and v != a and v != b:
+                    return False
+                
+            if sur_segment(u, a, b) or sur_segment(v, a, b):
+                continue
+                
+            if seg_intersect(u, v, a, b):
+                return False
     return True
 
 # ── Découpage du rectangle après S1 + S2 ───────────────────────────────
@@ -316,10 +340,10 @@ def explorer_explore(niveau, polys, H, V):
                     continue
                 if same_edge(poly, u, v):
                     continue
-                if not valid_diagonal(poly, u, v):
+                if not valid_diagonal(poly, u, v, polys):
                     continue
                 
-                res = diviser_poly(poly, u, v)
+                res = diviser_poly(poly, u, v, polys)
                 if res is None:
                     continue
                     
@@ -358,10 +382,10 @@ def explorer_gen(niveau, polys, H, V):
                     continue
                 if same_edge(poly, u, v):
                     continue
-                if not valid_diagonal(poly, u, v):
+                if not valid_diagonal(poly, u, v, polys):
                     continue
                 
-                res = diviser_poly(poly, u, v)
+                res = diviser_poly(poly, u, v, polys)
                 if res is None:
                     continue
                     
@@ -371,9 +395,18 @@ def explorer_gen(niveau, polys, H, V):
                 dec = decider(nT, autres)
 
                 if dec == 'SUCCESS':
-                    yield [clean_collinear(p) for p in nv_polys]
+                    yield nv_polys
                 elif dec == 'GO':
                     yield from explorer_gen(niveau + 1, nv_polys, H, V)
+
+
+def normalize_solution(polys):
+    """Crée une représentation unique d'une solution en triant les sommets et les triangles."""
+    sol = []
+    for p in polys:
+        p_clean = clean_collinear(p)
+        sol.append(tuple(sorted(p_clean)))
+    return tuple(sorted(sol))
 
 
 def generate_all_successes(H, V):
@@ -383,6 +416,7 @@ def generate_all_successes(H, V):
     if not pts_int:
         return
 
+    seen = set()
     for p1 in pts_int:
         bord = bord_points(H, V)
         for p2 in bord:
@@ -397,9 +431,18 @@ def generate_all_successes(H, V):
             dec = decider(nT, autres)
 
             if dec == 'SUCCESS':
-                yield [clean_collinear(p) for p in polys]
+                clean_polys = [clean_collinear(p) for p in polys]
+                norm = normalize_solution(clean_polys)
+                if norm not in seen:
+                    seen.add(norm)
+                    yield clean_polys
             elif dec == 'GO':
-                yield from explorer_gen(2, polys, H, V)
+                for nv_polys in explorer_gen(2, polys, H, V):
+                    clean_polys = [clean_collinear(p) for p in nv_polys]
+                    norm = normalize_solution(clean_polys)
+                    if norm not in seen:
+                        seen.add(norm)
+                        yield clean_polys
 
 
 def get_ascii_lines(H, V, segments):
