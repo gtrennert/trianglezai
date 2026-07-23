@@ -123,30 +123,25 @@ def diviser_poly(poly, u, v, all_polys):
     p = remove_duplicates(inserer_point(p, v))
     if p is None: return None
     
-    # Empêcher le segment de passer exactement par un autre sommet du polygone courant
     for w in p:
         if w != u and w != v and sur_segment(w, u, v):
             return None
             
-    # Vérifier les intersections et T-jonctions avec TOUS les polygones existants
     for other_poly in all_polys:
         n = len(other_poly)
         for i in range(n):
             a = other_poly[i]
             b = other_poly[(i+1)%n]
             
-            # 1. T-jonction: u ou v atterrit strictement au milieu d'une arête d'un AUTRE polygone
             if other_poly is not poly:
                 if sur_segment(u, a, b) and u != a and u != b:
                     return None
                 if sur_segment(v, a, b) and v != a and v != b:
                     return None
                 
-            # 2. Si u ou v touche l'arête à un sommet, ce n'est pas une intersection croisée
             if sur_segment(u, a, b) or sur_segment(v, a, b):
                 continue
                 
-            # 3. Intersection croisée stricte
             if seg_intersect(u, v, a, b):
                 return None
                 
@@ -280,6 +275,52 @@ def fmt_stats(nT, autres):
 def fmt_pt(p):
     return f"({p[0]},{p[1]})"
 
+# ── Signature Topologique (SGN) ────────────────────────────────────────
+
+def get_signature(triangles, H, V):
+    """Génère une signature topologique unique et invariante pour une famille de découpages."""
+    all_pts = set()
+    for t in triangles:
+        for p in t:
+            all_pts.add(p)
+            
+    pt_to_role = {}
+    coins = {
+        (0, 0): "A1",
+        (H - 1, 0): "A2",
+        (H - 1, V - 1): "A4",
+        (0, V - 1): "A3"
+    }
+    for p in all_pts:
+        if p in coins:
+            pt_to_role[p] = coins[p]
+        elif 0 < p[0] < H - 1 and 0 < p[1] < V - 1:
+            pt_to_role[p] = "I"
+            
+    top_pts = sorted([p for p in all_pts if p[1] == 0 and p not in coins], key=lambda p: p[0])
+    for i, p in enumerate(top_pts):
+        pt_to_role[p] = f"T{i+1}"
+        
+    right_pts = sorted([p for p in all_pts if p[0] == H - 1 and p not in coins], key=lambda p: p[1])
+    for i, p in enumerate(right_pts):
+        pt_to_role[p] = f"R{i+1}"
+        
+    bottom_pts = sorted([p for p in all_pts if p[1] == V - 1 and p not in coins], key=lambda p: p[0], reverse=True)
+    for i, p in enumerate(bottom_pts):
+        pt_to_role[p] = f"B{i+1}"
+        
+    left_pts = sorted([p for p in all_pts if p[0] == 0 and p not in coins], key=lambda p: p[1], reverse=True)
+    for i, p in enumerate(left_pts):
+        pt_to_role[p] = f"L{i+1}"
+        
+    sig_parts = []
+    for t in triangles:
+        roles = sorted([pt_to_role[p] for p in t])
+        sig_parts.append("-".join(roles))
+        
+    sig_parts.sort()
+    return " | ".join(sig_parts)
+
 # ── Mode 1 : Exploration ───────────────────────────────────────────────
 
 def main_explore(H, V):
@@ -316,8 +357,13 @@ def main_explore(H, V):
             t = tmin(nT, autres)
             dec = decider(nT, autres)
             stats = fmt_stats(nT, autres)
+            
+            dec_str = dec
+            if dec == 'SUCCESS':
+                sgn = get_signature([clean_collinear(p) for p in polys], H, V)
+                dec_str = f"SUCCESS ({sgn})"
 
-            print(f"\tP2{fmt_pt(p2)} => S2( {fmt_pt(p1)},{fmt_pt(p2)} ) : {stats} = {t}Tmin => {dec}")
+            print(f"\tP2{fmt_pt(p2)} => S2( {fmt_pt(p1)},{fmt_pt(p2)} ) : {stats} = {t}Tmin => {dec_str}")
 
             if dec == 'GO':
                 explorer_explore(2, polys, H, V)
@@ -354,10 +400,15 @@ def explorer_explore(niveau, polys, H, V):
                 dec = decider(nT, autres)
                 stats = fmt_stats(nT, autres)
                 
+                dec_str = dec
+                if dec == 'SUCCESS':
+                    sgn = get_signature([clean_collinear(p) for p in nv_polys], H, V)
+                    dec_str = f"SUCCESS ({sgn})"
+                
                 indent = "\t" * niveau
                 sn = niveau + 1
                 
-                print(f"{indent}P{sn}{fmt_pt(v)} => S{sn}( {fmt_pt(u)},{fmt_pt(v)} ) : {stats} = {t}Tmin => {dec}")
+                print(f"{indent}P{sn}{fmt_pt(v)} => S{sn}( {fmt_pt(u)},{fmt_pt(v)} ) : {stats} = {t}Tmin => {dec_str}")
 
                 if dec == 'GO':
                     explorer_explore(niveau + 1, nv_polys, H, V)
@@ -453,7 +504,6 @@ def get_ascii_lines(H, V, segments):
     H_grid = V * SCALE_Y + 1
     grid = [[' ' for _ in range(W)] for _ in range(H_grid)]
 
-    # Marquer tous les points de la grille avec un '+'
     for x in range(H):
         for y in range(V):
             grid[y * SCALE_Y][x * SCALE_X] = '+'
@@ -524,23 +574,21 @@ def main_draw(H, V):
         for i, triangles in enumerate(batch):
             print(f"--- Solution {batch_count * 9 + i + 1} ---")
             
-            # Construire la liste des segments à partir des triangles
             segments = []
             for t in triangles:
                 segments.append((t[0], t[1]))
                 segments.append((t[1], t[2]))
                 segments.append((t[2], t[0]))
                 
-            # Formater la liste des 5 triangles
             def fmt_triangle(t):
                 pts = ",".join([fmt_pt(p) for p in t])
                 return f"( {pts} )"
             list_str = " - ".join([fmt_triangle(t) for t in triangles])
             
-            # Afficher la liste des triangles AU-DESSUS du dessin
-            print(list_str)
+            sgn = get_signature(triangles, H, V)
             
-            # Récupérer et afficher les lignes du dessin ASCII
+            print(f"{list_str} ({sgn})")
+            
             ascii_lines = get_ascii_lines(H, V, segments)
             for line in ascii_lines:
                 print(line)
