@@ -6,9 +6,10 @@ Usage : python triangle.py H V
   H = nombre de points horizontaux de la grille
   V = nombre de points verticaux  de la grille
 
-Le script génère toujours un fichier texte complet avec l'arbre d'exploration.
-Ensuite, il affiche des statistiques dans la console.
-Enfin, il propose d'afficher les solutions sous forme de dessins ASCII par lots de 9.
+Le script génère toujours deux fichiers :
+  - AAAAMMJJhhmmss_resultat.txt : l'arbre complet des possibilités.
+  - AAAAMMJJhhmmss_stats.txt    : les statistiques de l'exploration.
+Ensuite, il propose d'afficher les solutions sous forme de dessins ASCII.
 """
 
 import sys
@@ -506,13 +507,16 @@ if __name__ == "__main__":
     H = int(sys.argv[1]) if len(sys.argv) > 1 else 5
     V = int(sys.argv[2]) if len(sys.argv) > 2 else 5
     
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    nom_fichier = f"resultat{timestamp}.txt"
+    mode = input("Afficher toutes les solutions (yes) ou une par signature (no) ? (defaut: yes): ").strip().lower()
     
-    print(f"Calcul en cours... Les résultats seront écrits dans : {nom_fichier}")
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    fichier_resultat = f"{timestamp}_resultat.txt"
+    fichier_stats = f"{timestamp}_stats.txt"
+    
+    print(f"Calcul en cours... Les résultats seront écrits dans : {fichier_resultat}")
     
     # 1. Lancer l'exploration complète et générer le fichier
-    with open(nom_fichier, 'w', encoding='utf-8') as f:
+    with open(fichier_resultat, 'w', encoding='utf-8') as f:
         old_stdout = sys.stdout
         sys.stdout = f
         try:
@@ -520,29 +524,54 @@ if __name__ == "__main__":
         finally:
             sys.stdout = old_stdout
             
-    print(f"Fichier généré : {nom_fichier}")
+    print(f"Fichier résultat généré : {fichier_resultat}")
     
-    # 2. Afficher les statistiques dans la console
+    # 2. Préparer les statistiques
     total_explo = ctx['total_explo']
-    successes = ctx['all_successes']
-    nb_success = len(successes)
+    all_successes = ctx['all_successes']
+    nb_success = len(all_successes)
     
-    signatures = set()
-    for triangles in successes:
+    signatures_set = set()
+    for triangles in all_successes:
         sgn = get_signature(triangles, H, V)
-        signatures.add(sgn)
-    nb_signatures = len(signatures)
+        signatures_set.add(sgn)
+    nb_signatures = len(signatures_set)
     
-    print("\n--- Statistiques ---")
-    print(f"Total explorations : {total_explo}")
-    print(f"Avec SUCCESS : {nb_success}")
-    print(f"Nombre de signatures : {nb_signatures}")
-    print("--------------------\n")
+    stats_lines = [
+        "--- Statistiques ---",
+        f"Total explorations : {total_explo}",
+        f"Avec SUCCESS : {nb_success}",
+        f"Nombre de signatures : {nb_signatures}",
+        "--------------------"
+    ]
+    stats_str = "\n".join(stats_lines) + "\n"
     
-    # 3. Afficher les 9 premiers et demander de continuer
+    # Écrire les statistiques dans le fichier stats
+    with open(fichier_stats, 'w', encoding='utf-8') as f:
+        f.write(stats_str)
+        
+    # Afficher les statistiques dans la console
+    print(stats_str)
+    
+    # 3. Filtrer les solutions si mode == "no"
+    if mode == "no":
+        seen_sgn = set()
+        filtered_successes = []
+        for triangles in all_successes:
+            sgn = get_signature(triangles, H, V)
+            if sgn not in seen_sgn:
+                seen_sgn.add(sgn)
+                filtered_successes.append(triangles)
+        successes_to_display = filtered_successes
+        print(f"Mode 'une par signature' : {len(successes_to_display)} solutions à afficher.\n")
+    else:
+        successes_to_display = all_successes
+        print(f"Mode 'toutes les solutions' : {len(successes_to_display)} solutions à afficher.\n")
+
+    # 4. Afficher les 9 premiers et demander de continuer
     idx = 0
-    while idx < len(successes):
-        batch = successes[idx:idx+9]
+    while idx < len(successes_to_display):
+        batch = successes_to_display[idx:idx+9]
         
         for i, triangles in enumerate(batch):
             print(f"--- Solution {idx + i + 1} ---")
@@ -569,7 +598,7 @@ if __name__ == "__main__":
 
         idx += 9
 
-        if idx >= len(successes):
+        if idx >= len(successes_to_display):
             print("Plus aucune solution.")
             break
 
