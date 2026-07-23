@@ -6,9 +6,9 @@ Usage : python triangle.py H V
   H = nombre de points horizontaux de la grille
   V = nombre de points verticaux  de la grille
 
-Modes :
-  - Exploration (yes) : Génère un fichier texte avec l'arbre complet des possibilités.
-  - Dessin (no)       : Affiche les configurations réussies sous forme de dessins ASCII par lots de 9.
+Le script génère toujours un fichier texte complet avec l'arbre d'exploration.
+Ensuite, il affiche des statistiques dans la console.
+Enfin, il propose d'afficher les solutions sous forme de dessins ASCII par lots de 9.
 """
 
 import sys
@@ -321,10 +321,33 @@ def get_signature(triangles, H, V):
     sig_parts.sort()
     return " | ".join(sig_parts)
 
-# ── Mode 1 : Exploration ───────────────────────────────────────────────
+def normalize_solution(polys):
+    """Crée une représentation unique d'une solution en triant les sommets et les triangles."""
+    sol = []
+    for p in polys:
+        p_clean = clean_collinear(p)
+        sol.append(tuple(sorted(p_clean)))
+    return tuple(sorted(sol))
+
+# ── Exploration ────────────────────────────────────────────────────────
 
 def main_explore(H, V):
     A1, A2, A3, A4 = (0, 0), (H - 1, 0), (0, V - 1), (H - 1, V - 1)
+    
+    ctx = {
+        'total_explo': 0,
+        'all_successes': [],
+        'seen': set()
+    }
+
+    def add_success(polys):
+        clean_polys = [clean_collinear(p) for p in polys]
+        norm = normalize_solution(clean_polys)
+        sgn = get_signature(clean_polys, H, V)
+        if norm not in ctx['seen']:
+            ctx['seen'].add(norm)
+            ctx['all_successes'].append(clean_polys)
+        return sgn
 
     print(f"# Grille d'exploration : {H} points horizontaux (x=0..{H-1}), {V} points verticaux (y=0..{V-1})")
     print(f"# Coins du rectangle : A1{fmt_pt(A1)} A2{fmt_pt(A2)} A3{fmt_pt(A3)} A4{fmt_pt(A4)}")
@@ -335,7 +358,7 @@ def main_explore(H, V):
     pts_int = interieur_points(H, V)
     if not pts_int:
         print("# Pas de point intérieur (H<3 ou V<3) — impossible")
-        return
+        return ctx
 
     print("A1")
 
@@ -358,18 +381,22 @@ def main_explore(H, V):
             dec = decider(nT, autres)
             stats = fmt_stats(nT, autres)
             
+            ctx['total_explo'] += 1
+
             dec_str = dec
             if dec == 'SUCCESS':
-                sgn = get_signature([clean_collinear(p) for p in polys], H, V)
+                sgn = add_success(polys)
                 dec_str = f"SUCCESS ({sgn})"
 
             print(f"\tP2{fmt_pt(p2)} => S2( {fmt_pt(p1)},{fmt_pt(p2)} ) : {stats} = {t}Tmin => {dec_str}")
 
             if dec == 'GO':
-                explorer_explore(2, polys, H, V)
+                explorer_explore(2, polys, H, V, ctx, add_success)
+                
+    return ctx
 
 
-def explorer_explore(niveau, polys, H, V):
+def explorer_explore(niveau, polys, H, V, ctx, add_success):
     if niveau > 4:
         return
 
@@ -400,9 +427,11 @@ def explorer_explore(niveau, polys, H, V):
                 dec = decider(nT, autres)
                 stats = fmt_stats(nT, autres)
                 
+                ctx['total_explo'] += 1
+                
                 dec_str = dec
                 if dec == 'SUCCESS':
-                    sgn = get_signature([clean_collinear(p) for p in nv_polys], H, V)
+                    sgn = add_success(nv_polys)
                     dec_str = f"SUCCESS ({sgn})"
                 
                 indent = "\t" * niveau
@@ -411,90 +440,10 @@ def explorer_explore(niveau, polys, H, V):
                 print(f"{indent}P{sn}{fmt_pt(v)} => S{sn}( {fmt_pt(u)},{fmt_pt(v)} ) : {stats} = {t}Tmin => {dec_str}")
 
                 if dec == 'GO':
-                    explorer_explore(niveau + 1, nv_polys, H, V)
+                    explorer_explore(niveau + 1, nv_polys, H, V, ctx, add_success)
 
 
-# ── Mode 2 : Dessin ASCII ──────────────────────────────────────────────
-
-def explorer_gen(niveau, polys, H, V):
-    if niveau > 4:
-        return
-
-    for pi, poly in enumerate(polys):
-        cands = get_candidates(poly, H, V)
-        for i in range(len(cands)):
-            for j in range(i + 1, len(cands)):
-                u = cands[i]
-                v = cands[j]
-                
-                if u == v:
-                    continue
-                if partagent_bord(u, v, H, V):
-                    continue
-                if same_edge(poly, u, v):
-                    continue
-                if not valid_diagonal(poly, u, v, polys):
-                    continue
-                
-                res = diviser_poly(poly, u, v, polys)
-                if res is None:
-                    continue
-                    
-                p1, p2 = res
-                nv_polys = polys[:pi] + [p1, p2] + polys[pi + 1:]
-                nT, autres = calculer_stats(nv_polys)
-                dec = decider(nT, autres)
-
-                if dec == 'SUCCESS':
-                    yield nv_polys
-                elif dec == 'GO':
-                    yield from explorer_gen(niveau + 1, nv_polys, H, V)
-
-
-def normalize_solution(polys):
-    """Crée une représentation unique d'une solution en triant les sommets et les triangles."""
-    sol = []
-    for p in polys:
-        p_clean = clean_collinear(p)
-        sol.append(tuple(sorted(p_clean)))
-    return tuple(sorted(sol))
-
-
-def generate_all_successes(H, V):
-    A1, A2, A3, A4 = (0, 0), (H - 1, 0), (0, V - 1), (H - 1, V - 1)
-    
-    pts_int = interieur_points(H, V)
-    if not pts_int:
-        return
-
-    seen = set()
-    for p1 in pts_int:
-        bord = bord_points(H, V)
-        for p2 in bord:
-            if p2 == A1:
-                continue
-
-            polys = decouper_apres_s2(A1, A2, A3, A4, p1, p2, H, V)
-            if polys is None:
-                continue
-
-            nT, autres = calculer_stats(polys)
-            dec = decider(nT, autres)
-
-            if dec == 'SUCCESS':
-                clean_polys = [clean_collinear(p) for p in polys]
-                norm = normalize_solution(clean_polys)
-                if norm not in seen:
-                    seen.add(norm)
-                    yield clean_polys
-            elif dec == 'GO':
-                for nv_polys in explorer_gen(2, polys, H, V):
-                    clean_polys = [clean_collinear(p) for p in nv_polys]
-                    norm = normalize_solution(clean_polys)
-                    if norm not in seen:
-                        seen.add(norm)
-                        yield clean_polys
-
+# ── Dessin ASCII ───────────────────────────────────────────────────────
 
 def get_ascii_lines(H, V, segments):
     """Génère les lignes de texte ASCII pour un rectangle et ses segments."""
@@ -551,28 +500,52 @@ def get_ascii_lines(H, V, segments):
     return [ "".join(row) for row in grid ]
 
 
-def main_draw(H, V):
-    print(f"Recherche des solutions pour {H}x{V}...")
-    gen = generate_all_successes(H, V)
-    batch_count = 0
+# ── Programme principal ────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    H = int(sys.argv[1]) if len(sys.argv) > 1 else 5
+    V = int(sys.argv[2]) if len(sys.argv) > 2 else 5
     
-    while True:
-        batch = []
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    nom_fichier = f"resultat{timestamp}.txt"
+    
+    print(f"Calcul en cours... Les résultats seront écrits dans : {nom_fichier}")
+    
+    # 1. Lancer l'exploration complète et générer le fichier
+    with open(nom_fichier, 'w', encoding='utf-8') as f:
+        old_stdout = sys.stdout
+        sys.stdout = f
         try:
-            for _ in range(9):
-                batch.append(next(gen))
-        except StopIteration:
-            pass
-
-        if not batch:
-            if batch_count == 0:
-                print("Aucune solution trouvée.")
-            else:
-                print("Plus aucune solution.")
-            break
-
+            ctx = main_explore(H, V)
+        finally:
+            sys.stdout = old_stdout
+            
+    print(f"Fichier généré : {nom_fichier}")
+    
+    # 2. Afficher les statistiques dans la console
+    total_explo = ctx['total_explo']
+    successes = ctx['all_successes']
+    nb_success = len(successes)
+    
+    signatures = set()
+    for triangles in successes:
+        sgn = get_signature(triangles, H, V)
+        signatures.add(sgn)
+    nb_signatures = len(signatures)
+    
+    print("\n--- Statistiques ---")
+    print(f"Total explorations : {total_explo}")
+    print(f"Avec SUCCESS : {nb_success}")
+    print(f"Nombre de signatures : {nb_signatures}")
+    print("--------------------\n")
+    
+    # 3. Afficher les 9 premiers et demander de continuer
+    idx = 0
+    while idx < len(successes):
+        batch = successes[idx:idx+9]
+        
         for i, triangles in enumerate(batch):
-            print(f"--- Solution {batch_count * 9 + i + 1} ---")
+            print(f"--- Solution {idx + i + 1} ---")
             
             segments = []
             for t in triangles:
@@ -594,39 +567,12 @@ def main_draw(H, V):
                 print(line)
             print()
 
-        batch_count += 1
+        idx += 9
 
-        if len(batch) < 9:
+        if idx >= len(successes):
             print("Plus aucune solution.")
             break
 
         ans = input("continuer avec les 9 suivants yes/no: ").strip().lower()
         if ans != 'yes':
             break
-
-
-# ── Programme principal ────────────────────────────────────────────────
-
-if __name__ == "__main__":
-    H = int(sys.argv[1]) if len(sys.argv) > 1 else 4
-    V = int(sys.argv[2]) if len(sys.argv) > 2 else 4
-    
-    mode = input("mode exploration yes/no (defaut: yes): ").strip().lower()
-    
-    if mode == "no":
-        main_draw(H, V)
-    else:
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        nom_fichier = f"resultat{timestamp}.txt"
-        
-        print(f"Calcul en cours... Les résultats seront écrits dans : {nom_fichier}")
-        
-        with open(nom_fichier, 'w', encoding='utf-8') as f:
-            old_stdout = sys.stdout
-            sys.stdout = f
-            try:
-                main_explore(H, V)
-            finally:
-                sys.stdout = old_stdout
-                
-        print(f"Terminé ! Les résultats ont été sauvegardés dans {nom_fichier}.")
